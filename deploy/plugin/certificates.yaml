@@ -1,0 +1,32 @@
+# mTLS between the CloudNativePG operator and the plugin's gRPC server.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: pgppi-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pgppi-server
+spec:
+  secretName: pgppi-server-tls
+  commonName: pgppi
+  dnsNames: [pgppi]
+  duration: 2160h
+  renewBefore: 360h
+  usages: [server auth]
+  issuerRef: {name: pgppi-selfsigned, kind: Issuer, group: cert-manager.io}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pgppi-client
+spec:
+  secretName: pgppi-client-tls
+  commonName: pgppi-client
+  duration: 2160h
+  renewBefore: 360h
+  usages: [client auth]
+  issuerRef: {name: pgppi-selfsigned, kind: Issuer, group: cert-manager.io}

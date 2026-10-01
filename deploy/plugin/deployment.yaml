@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgppi
+  labels: {app: pgppi}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: pgppi}
+  template:
+    metadata:
+      labels: {app: pgppi}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: pgppi
+        image: ghcr.io/daniel-garcia/pg-ppi:dev
+        imagePullPolicy: IfNotPresent
+        args:
+        - plugin
+        - --server-cert=/server/tls.crt
+        - --server-key=/server/tls.key
+        - --client-cert=/client/tls.crt
+        - --server-address=:9090
+        env:
+        # Default image for the injected sidecar (overridable per Cluster
+        # with the `image` plugin parameter). Keep in sync with `image` above.
+        - name: PGPPI_SIDECAR_IMAGE
+          value: ghcr.io/daniel-garcia/pg-ppi:dev
+        ports:
+        - {name: grpc, containerPort: 9090}
+        readinessProbe:
+          tcpSocket: {port: 9090}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts:
+        - {name: server, mountPath: /server}
+        - {name: client, mountPath: /client}
+      volumes:
+      - name: server
+        secret: {secretName: pgppi-server-tls}
+      - name: client
+        secret: {secretName: pgppi-client-tls}

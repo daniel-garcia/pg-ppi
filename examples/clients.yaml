@@ -1,0 +1,117 @@
+# Meshed psql clients running as different ServiceAccounts, plus one that is
+# not meshed. Each just sleeps; the e2e test runs psql via kubectl exec.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: billing
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: billing, namespace: billing}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: reporting, namespace: billing}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: intruder, namespace: billing}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: cdc, namespace: billing}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: billing, namespace: billing}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: billing}
+  template:
+    metadata:
+      labels: {app: billing}
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      serviceAccountName: billing
+      containers:
+      - name: client
+        image: postgres:17
+        command: [sleep, infinity]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: reporting, namespace: billing}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: reporting}
+  template:
+    metadata:
+      labels: {app: reporting}
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      serviceAccountName: reporting
+      containers:
+      - name: client
+        image: postgres:17
+        command: [sleep, infinity]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: intruder, namespace: billing}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: intruder}
+  template:
+    metadata:
+      labels: {app: intruder}
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      serviceAccountName: intruder
+      containers:
+      - name: client
+        image: postgres:17
+        command: [sleep, infinity]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: unmeshed, namespace: billing}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: unmeshed}
+  template:
+    metadata:
+      labels: {app: unmeshed}
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      serviceAccountName: billing
+      containers:
+      - name: client
+        image: postgres:17
+        command: [sleep, infinity]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cdc, namespace: billing}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: cdc}
+  template:
+    metadata:
+      labels: {app: cdc}
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      serviceAccountName: cdc
+      containers:
+      - name: client
+        image: postgres:17
+        command: [sleep, infinity]

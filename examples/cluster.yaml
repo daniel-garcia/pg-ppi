@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: db
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg
+  namespace: db
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+
+  plugins:
+  # Injects the pgppi sidecar into every instance pod and annotates those
+  # pods for Linkerd (inject + opaque + proxy-protocol-v2-inbound-ports).
+  - name: pgppi.daniel-garcia.github.io
+    parameters:
+      port: "15432"
+      # "client": forward the role the client asks for (pg_ident decides).
+      # "identity": log in as the caller's ServiceAccount name.
+      userMode: client
+      # Forward logical replication (replication=database) for CDC tools
+      # such as Debezium. PostgreSQL still requires the REPLICATION role
+      # attribute. "all" also forwards physical replication, which
+      # additionally needs a `hostssl replication ...` pg_hba line.
+      allowReplication: logical
+
+  postgresql:
+    parameters:
+      wal_level: logical
+    # pgppi reaches PostgreSQL over loopback TLS and presents a client
+    # certificate with CN=<linkerd identity>, signed by the cluster's
+    # client CA. `cert map=linkerd` makes pg_ident.conf the policy.
+    # A connection without such a certificate never matches these lines.
+    pg_hba:
+    - hostssl all all 127.0.0.1/32 cert map=linkerd
+    - hostssl all all ::1/128      cert map=linkerd
+    # Which Linkerd identities may log in as which roles.
+    pg_ident:
+    - linkerd billing.billing.serviceaccount.identity.linkerd.cluster.local   billing_app
+    - linkerd reporting.billing.serviceaccount.identity.linkerd.cluster.local reporting_app
+    - linkerd cdc.billing.serviceaccount.identity.linkerd.cluster.local       cdc
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      postInitApplicationSQL:
+      - CREATE ROLE billing_app   LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
+      - CREATE ROLE reporting_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
+      - CREATE ROLE cdc           LOGIN REPLICATION NOSUPERUSER NOCREATEDB NOCREATEROLE
+      - REVOKE CREATE ON SCHEMA public FROM PUBLIC
+      - CREATE TABLE invoices (id serial PRIMARY KEY, amount int NOT NULL)
+      - ALTER TABLE invoices OWNER TO app
+      - GRANT SELECT, INSERT ON invoices TO billing_app
+      - GRANT USAGE ON SEQUENCE invoices_id_seq TO billing_app
+      - GRANT SELECT ON invoices TO reporting_app
+      - GRANT SELECT ON invoices TO cdc
+      - CREATE PUBLICATION invoices_pub FOR TABLE invoices
+---
+# Clients connect here instead of pg-rw:5432.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-pgppi
+  namespace: db
+  annotations:
+    config.linkerd.io/opaque-ports: "15432"
+spec:
+  selector:
+    cnpg.io/cluster: pg
+    cnpg.io/instanceRole: primary
+  ports:
+  - name: pgppi
+    port: 15432
+    targetPort: 15432
